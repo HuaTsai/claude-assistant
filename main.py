@@ -32,7 +32,7 @@ load_dotenv()
 
 app = FastAPI(title="GitHub Claude Webhook")
 
-claude_reply_signature = "\n\n---\n*🔧 此回覆由 [Claude Code](https://claude.ai/code) 自動分析生成*"
+claude_reply_signature = "\n\n---\n*🔧 此回覆由 [Claude Code](https://claude.ai/code) 自動生成*"
 
 def analyze_issue_with_claude(issue_data: str) -> str:
     prompt = f"""作為一個專業的軟體開發助手，請分析以下 GitHub issue 並提供建設性的回應。
@@ -47,6 +47,9 @@ def analyze_issue_with_claude(issue_data: str) -> str:
 4. 適當的表情符號讓回應更友善
 
 請用繁體中文回應，保持專業但友善的語調。
+請注意，回應必須以以下格式結尾：
+
+{claude_reply_signature}
 """
 
     try:
@@ -58,7 +61,7 @@ def analyze_issue_with_claude(issue_data: str) -> str:
             check=True,
             timeout=timeout,
         )
-        return f"{result.stdout.strip()}{claude_reply_signature}"
+        return f"{result.stdout.strip()}"
     except subprocess.CalledProcessError as e:
         logger.error(f"Claude API error: {e.stderr}")
         return f"🤖 分析系統暫時無法使用。我會稍後查看這個 issue。{claude_reply_signature}"
