@@ -3,7 +3,7 @@ import json
 import hmac
 import hashlib
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
