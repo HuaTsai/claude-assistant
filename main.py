@@ -1,150 +1,233 @@
+"""
+GitHub Claude Webhook Service
+
+A FastAPI-based webhook service that automatically responds to GitHub issues using Claude AI.
+This service listens for GitHub webhook events and provides AI-powered responses to issues
+marked with the 'claude-discuss' label.
+
+Reference: https://docs.github.com/en/webhooks/webhook-events-and-payloads
+"""
+
 import subprocess
 import json
 import hmac
 import hashlib
 import os
-from typing import Dict, Any, Optional
+import logging
+from typing import Any
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+import uvicorn
+from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-app = FastAPI(title="GitHub Issue Webhook")
+app = FastAPI(title="GitHub Claude Webhook")
 
-def verify_signature(payload_body: bytes, signature: str, secret: str) -> bool:
-    """驗證 GitHub webhook 簽名"""
-    if not signature.startswith('sha256='):
-        return False
-    
-    expected_signature = hmac.new(
-        secret.encode('utf-8'),
-        payload_body,
-        hashlib.sha256
-    ).hexdigest()
-    
-    return hmac.compare_digest(f"sha256={expected_signature}", signature)
+claude_reply_signature = "\n\n---\n*🔧 此回覆由 [Claude Code](https://claude.ai/code) 自動分析生成*"
 
-def analyze_issue_with_claude(issue_data: Dict[str, Any]) -> str:
-    """使用 Claude API 分析 GitHub issue"""
-    title = issue_data.get('title', '')
-    body = issue_data.get('body', '')
-    labels = [label['name'] for label in issue_data.get('labels', [])]
-    author = issue_data.get('user', {}).get('login', 'Unknown')
-    
-    # 構建給 Claude 的 prompt
+def analyze_issue_with_claude(issue_data: str) -> str:
     prompt = f"""作為一個專業的軟體開發助手，請分析以下 GitHub issue 並提供建設性的回應。
+以下是 issue 的詳細資訊，以 JSON 格式呈現：
 
-Issue 標題: {title}
-作者: {author}
-標籤: {', '.join(labels) if labels else '無'}
+{issue_data}
 
-Issue 內容:
-{body}
-
-請提供：
-1. 對這個 issue 的初步分析
+請根據以上對話歷史，提供適當的回應或繼續討論，可參考以下建議：
+1. 對這個 issue 的分析（如果是首次回應）或對最新留言的回應
 2. 建議的後續步驟或解決方向
 3. 如果需要更多資訊，請具體說明需要什麼
 4. 適當的表情符號讓回應更友善
 
-請用繁體中文回應，保持專業但友善的語調。"""
+請用繁體中文回應，保持專業但友善的語調。
+"""
 
     try:
-        # 使用 subprocess 呼叫 claude 命令
-        timeout = int(os.getenv('CLAUDE_TIMEOUT', 120))
+        timeout = int(os.getenv("CLAUDE_TIMEOUT"))
         result = subprocess.run(
-            ['claude', prompt],
+            ["claude", prompt],
             capture_output=True,
             text=True,
             check=True,
-            timeout=timeout
+            timeout=timeout,
         )
-        
-        claude_response = result.stdout.strip()
-        
-        # 加上 Claude Code 標識
-        response_with_signature = f"{claude_response}\n\n---\n*🔧 此回覆由 [Claude Code](https://claude.ai/code) 自動分析生成*"
-        
-        return response_with_signature
-        
+        return f"{result.stdout.strip()}{claude_reply_signature}"
     except subprocess.CalledProcessError as e:
-        print(f"Claude API error: {e.stderr}")
-        return "🤖 抱歉，分析系統暫時無法使用。我會稍後回來查看這個 issue。\n\n---\n*🔧 此回覆由 [Claude Code](https://claude.ai/code) 自動分析生成*"
+        logger.error(f"Claude API error: {e.stderr}")
+        return f"🤖 分析系統暫時無法使用。我會稍後查看這個 issue。{claude_reply_signature}"
     except subprocess.TimeoutExpired:
-        print("Claude API timeout")
-        return "🤖 分析處理時間過長，請稍後我會再次查看這個 issue。\n\n---\n*🔧 此回覆由 [Claude Code](https://claude.ai/code) 自動分析生成*"
+        logger.error("Claude API timeout")
+        return f"🤖 分析處理時間過長，我會稍後查看這個 issue。{claude_reply_signature}"
     except Exception as e:
-        print(f"Unexpected error: {str(e)}")
-        return "🤖 系統發生未預期的錯誤，我會稍後回來查看這個 issue。\n\n---\n*🔧 此回覆由 [Claude Code](https://claude.ai/code) 自動分析生成*"
+        logger.error(f"Unexpected error: {str(e)}")
+        return f"🤖 系統發生未預期的錯誤，我會稍後查看這個 issue。{claude_reply_signature}"
 
-def post_comment_via_gh(repo: str, issue_number: int, comment: str) -> bool:
-    """使用 gh CLI 發表留言"""
+
+def post_comment(repo: str, issue_number: int, comment: str) -> bool:
     try:
-        cmd = [
-            'gh', 'issue', 'comment', str(issue_number),
-            '--repo', repo,
-            '--body', comment
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        cmd = ["gh", "issue", "comment", str(issue_number), "--repo", repo, "--body", comment]
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"Error posting comment: {e.stderr}")
+        logger.error(f"Error posting comment: {e.stderr}")
         return False
+
+
+async def handle_issues_labeled(repo_path: Path, payload: dict[str, Any]) -> JSONResponse:
+    label = payload.get("label", {}).get("name")
+    if label != "claude-discuss":
+        logger.info(f"Label ignored: {label}")
+        return JSONResponse({"message": f"Label ignored: {label}"}, status_code=200)
+
+    repo_full_name = payload.get("repository", {}).get("full_name")
+    issue_number = payload.get("issue", {}).get("number")
+
+    try:
+        gh_cmd = [
+            "gh",
+            "issue",
+            "view",
+            str(issue_number),
+            "--json",
+            "title,body,author,labels,state,comments",
+        ]
+        gh_result = subprocess.run(
+            gh_cmd, cwd=repo_path, capture_output=True, text=True, check=True
+        )
+        issue_info = json.loads(gh_result.stdout)
+        logger.info(f"Viewing issue #{issue_number}: {issue_info.get('title')}...")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error viewing issue with gh: {e.stderr}")
+        raise HTTPException(status_code=500, detail="Failed to fetch issue details")
+    except Exception as e:
+        logger.error(f"Unexpected error viewing issue: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch issue details")
+
+    claude_thoughts = analyze_issue_with_claude(json.dumps(issue_info, ensure_ascii=False))
+    success = post_comment(repo_full_name, issue_number, claude_thoughts)
+
+    if success:
+        logger.info(f"Comment posted successfully for issue #{issue_number} in {repo_full_name}")
+        return JSONResponse({"message": "Comment posted successfully"}, status_code=200)
+    else:
+        raise HTTPException(status_code=500, detail="Failed to post comment")
+
+
+async def handle_issue_comment_created(repo_path: Path, payload: dict[str, Any]) -> JSONResponse:
+    issue = payload.get("issue", {})
+    issue_labels = issue.get("labels", [])
+    if not any(label.get("name") == "claude-discuss" for label in issue_labels):
+        logger.info(f"Issue #{issue.get('number')} not marked for claude-discuss")
+        return JSONResponse({"message": "Issue not marked for claude-discuss"}, status_code=200)
+
+    repo_full_name = payload.get("repository", {}).get("full_name")
+    issue_number = issue.get("number")
+
+    try:
+        gh_cmd = [
+            "gh",
+            "issue",
+            "view",
+            str(issue_number),
+            "--json",
+            "title,body,author,labels,state,comments",
+        ]
+        gh_result = subprocess.run(
+            gh_cmd, cwd=repo_path, capture_output=True, text=True, check=True
+        )
+        issue_info = json.loads(gh_result.stdout)
+        logger.info(f"Viewing issue #{issue_number}: {issue_info.get('title')}...")
+        comments = issue_info.get("comments", [])
+        if comments and comments[-1].get("body", "").endswith(claude_reply_signature):
+            logger.info(f"Issue #{issue_number} already has a Claude reply, skipping...")
+            return JSONResponse({"message": "Claude reply already exists"}, status_code=200)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error viewing issue with gh: {e.stderr}")
+        raise HTTPException(status_code=500, detail="Failed to fetch issue details")
+    except Exception as e:
+        logger.error(f"Unexpected error viewing issue: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch issue details")
+
+    claude_thoughts = analyze_issue_with_claude(json.dumps(issue_info, ensure_ascii=False))
+    success = post_comment(repo_full_name, issue_number, claude_thoughts)
+
+    if success:
+        logger.info(f"Reply posted successfully for issue #{issue_number} in {repo_full_name}")
+        return JSONResponse({"message": "Reply posted successfully"}, status_code=200)
+    else:
+        raise HTTPException(status_code=500, detail="Failed to post reply")
+
 
 @app.post("/webhook")
 async def github_webhook(request: Request):
-    """處理 GitHub webhook"""
     try:
-        # 讀取原始 payload 用於簽名驗證
+        secret = os.getenv("GITHUB_WEBHOOK_SECRET")
+        if not secret:
+            raise HTTPException(status_code=500, detail="Webhook secret not configured")
+
+        signature = request.headers.get("X-Hub-Signature-256")
+        if not signature:
+            raise HTTPException(status_code=400, detail="Missing signature header")
+
         payload_body = await request.body()
-        
-        # 驗證簽名（如果設定了 secret）
-        webhook_secret = os.getenv('GITHUB_WEBHOOK_SECRET')
-        if webhook_secret:
-            signature = request.headers.get('X-Hub-Signature-256')
-            if not signature or not verify_signature(payload_body, signature, webhook_secret):
-                raise HTTPException(status_code=401, detail="Invalid signature")
-        
+        expected_signature = hmac.new(
+            secret.encode("utf-8"), payload_body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(f"sha256={expected_signature}", signature):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+
         payload = json.loads(payload_body)
-        event_type = request.headers.get('X-GitHub-Event')
-        
-        if event_type != 'issues':
-            return JSONResponse({"message": "Event ignored"}, status_code=200)
-        
-        action = payload.get('action')
-        if action not in ['opened', 'reopened']:
-            return JSONResponse({"message": "Action ignored"}, status_code=200)
-        
-        issue = payload.get('issue', {})
-        repository = payload.get('repository', {})
-        
-        repo_full_name = repository.get('full_name')
-        issue_number = issue.get('number')
-        
-        if not repo_full_name or not issue_number:
-            raise HTTPException(status_code=400, detail="Missing required data")
-        
-        # 使用 Claude API 分析 issue 並產生想法
-        claude_thoughts = analyze_issue_with_claude(issue)
-        
-        # 使用 gh CLI 發表留言
-        success = post_comment_via_gh(repo_full_name, issue_number, claude_thoughts)
-        
-        if success:
-            return JSONResponse({"message": "Comment posted successfully"}, status_code=200)
+        event_type = request.headers.get("X-GitHub-Event") + "." + payload.get("action")
+
+        repository = payload.get("repository", {})
+        repo_full_name = repository.get("full_name")
+        ssh_url = repository.get("ssh_url")
+
+        workdir = Path.home() / "workdir"
+        workdir.mkdir(exist_ok=True)
+        repo_path = workdir / repo_full_name.split("/")[-1]
+
+        if not repo_path.exists():
+            try:
+                subprocess.run(
+                    ["git", "clone", ssh_url, "--depth", "1"],
+                    cwd=workdir,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                logger.info(f"Cloned repository: {repo_full_name}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to clone repository {repo_full_name}: {e.stderr}")
+                raise HTTPException(status_code=500, detail="Failed to clone repository")
         else:
-            raise HTTPException(status_code=500, detail="Failed to post comment")
-            
+            logger.info(f"Repository already exists: {repo_path}")
+
+        if event_type == "issues.labeled":
+            return await handle_issues_labeled(repo_path, payload)
+        elif event_type == "issue_comment.created":
+            return await handle_issue_comment_created(repo_path, payload)
+        else:
+            logger.info(f"Event ignored: {event_type}")
+            return JSONResponse({"message": "Event ignored"}, status_code=200)
+
     except Exception as e:
-        print(f"Webhook error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Webhook error: {e}")
+        raise HTTPException(status_code=500, detail=e)
+
 
 @app.get("/")
 async def health_check():
     return {"status": "GitHub Issue Webhook is running"}
 
+
 if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv('PORT', 50454))
+    port = int(os.getenv("PORT"))
     uvicorn.run(app, host="0.0.0.0", port=port)
