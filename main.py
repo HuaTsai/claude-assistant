@@ -348,7 +348,7 @@ async def github_webhook(request: Request):
             logger.info(f"Repository already exists: {repo_path}")
             subprocess.run(
                 ["git", "checkout", "main"],
-                cwd=workdir,
+                cwd=repo_path,
                 check=True,
                 capture_output=True,
                 text=True,
