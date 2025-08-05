@@ -136,8 +136,17 @@ def implement_issue_with_claude(
             capture_output=True,
             text=True,
         )
+
         subprocess.run(
             ["git", "pull", "--rebase"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        subprocess.run(
+            ["git", "branch", "-D", branch_name],
             cwd=repo_path,
             check=True,
             capture_output=True,
@@ -151,6 +160,7 @@ def implement_issue_with_claude(
             capture_output=True,
             text=True,
         )
+
         logger.info(f"Created branch: {branch_name}")
 
         prompt = f"""請你作為一個專業的軟體開發者，根據以下 GitHub issue 進行實作。
@@ -189,7 +199,7 @@ Issue 資訊：
 
         timeout = int(os.getenv("CLAUDE_TIMEOUT", "300"))
         result = subprocess.run(
-            ["claude", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(git:*)", prompt],
+            ["claude", prompt, "--permission-mode", "acceptEdits", "--allowedTools", "Bash(git:*)", "--prompt"],
             cwd=repo_path,
             capture_output=True,
             text=True,
