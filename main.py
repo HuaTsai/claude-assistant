@@ -208,7 +208,7 @@ Issue 資訊：
         pr_body = result.stdout.strip()
 
         subprocess.run(
-            ["gh", "pr", "create", "--title", pr_title, "--body", pr_body, "--base", "main"],
+            ["gh", "pr", "create", "-t", pr_title, "-b", pr_body, "-B", "main", "-H", branch_name],
             cwd=repo_path,
             check=True,
             capture_output=True,
