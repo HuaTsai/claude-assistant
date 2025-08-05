@@ -199,7 +199,7 @@ Issue 資訊：
 
         timeout = int(os.getenv("CLAUDE_TIMEOUT", "300"))
         result = subprocess.run(
-            ["claude", prompt, "--permission-mode", "acceptEdits", "--allowedTools", "Bash(git:*)", "--prompt"],
+            ["claude", prompt, "--permission-mode", "acceptEdits", "--allowedTools", "Bash(git:*)"],
             cwd=repo_path,
             capture_output=True,
             text=True,
