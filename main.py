@@ -166,7 +166,7 @@ Issue 資訊：
 
 {json.dumps(issue_info, ensure_ascii=False)}
 
-以創建立新的分支，請按照以下步驟進行：
+目前環境已經建立新的分支，請按照以下步驟進行：
 1. 分析 issue 的需求和目標
 2. 查看現有的代碼結構和相關文件
 3. 實作所需的功能或修復
@@ -176,7 +176,6 @@ Issue 資訊：
 7. 提交更改，執行 git add 和 git commit 指令
   - 使用**英文**撰寫
   - 需使用 conventional commit message 格式
-  - 註明程式碼由 Claude Code 自動生成
 
 請確保你的實作：
 - 符合 issue 的具體要求
@@ -187,7 +186,6 @@ Issue 資訊：
 完成實作後，需要建立 Pull Request
 - 不需執行 PR 指令，只需提供 PR 的標題和說明
 - 請**用英文**描述你所做的更改
-- 記得增加 Closes #{issue_number} 到說明中
 """
 
         timeout = int(os.getenv("CLAUDE_TIMEOUT", "300"))
