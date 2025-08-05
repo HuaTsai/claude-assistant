@@ -176,11 +176,10 @@ Issue 資訊：
 4. 確保代碼風格一致
 5. 如果需要，進行重構與優化
 6. 如果需要，更新相關的測試
-7. 提交更改，執行 git add 、 git commit 和 git push 指令
+7. 提交更改，執行 git add 和 git commit 指令
   - 使用**英文**撰寫
-  - 需使用 convention commit message 格式
+  - 需使用 conventional commit message 格式
   - 註明程式碼由 Claude Code 自動生成
-  - 用當前分支名稱作為遠端推送分支名稱
 
 請確保你的實作：
 - 符合 issue 的具體要求
@@ -192,9 +191,6 @@ Issue 資訊：
 - 不需執行 PR 指令，只需提供 PR 的標題和說明
 - 請**用英文**描述你所做的更改
 - 記得增加 Closes #{issue_number} 到說明中
-- 所有事情完成後，回應必須以以下格式結尾：
-
-  {claude_reply_signature_en}
 """
 
         timeout = int(os.getenv("CLAUDE_TIMEOUT", "300"))
@@ -206,8 +202,16 @@ Issue 資訊：
             check=True,
             timeout=timeout,
         )
-
         logger.info("Claude implementation completed")
+
+        subprocess.run(
+            ["git", "push", "-u", "origin", branch_name],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        logger.info(f"Pushed branch {branch_name} to remote")
 
         pr_title = f"🤖 Implement issue #{issue_number}"
         pr_body = result.stdout.strip()
