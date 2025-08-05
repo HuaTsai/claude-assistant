@@ -89,11 +89,11 @@ def extract_repo_and_issue_info(payload: dict[str, Any]) -> tuple[str, int]:
     return repo_full_name, issue_number
 
 
-def analyze_issue_with_claude(issue_data: str) -> str:
+def analyze_issue_with_claude(issue_info: dict[str, Any]) -> str:
     prompt = f"""作為一個專業的軟體開發助手，請分析以下 GitHub issue 並提供建設性的回應。
 以下是 issue 的詳細資訊，以 JSON 格式呈現：
 
-{issue_data}
+{json.dumps(issue_info, ensure_ascii=False)}
 
 請根據以上對話歷史，提供適當的回應或繼續討論，可參考以下建議：
 1. 對這個 issue 的分析（如果是首次回應）或對最新留言的回應
@@ -160,32 +160,31 @@ def implement_issue_with_claude(
 
         logger.info(f"Created branch: {branch_name}")
 
-        prompt = f"""請你作為一個專業的軟體開發者，根據以下 GitHub issue 進行實作。
-
-Issue 資訊：
+        prompt = f"""As a professional software developer, please implement the solution based on the following GitHub issue.
+Issue Information:
 
 {json.dumps(issue_info, ensure_ascii=False)}
 
-目前環境已經建立新的分支，請按照以下步驟進行：
-1. 分析 issue 的需求和目標
-2. 查看現有的代碼結構和相關文件
-3. 實作所需的功能或修復
-4. 確保代碼風格一致
-5. 如果需要，進行重構與優化
-6. 如果需要，更新相關的測試
-7. 提交更改，執行 git add 和 git commit 指令
-  - 使用**英文**撰寫
-  - 需使用 conventional commit message 格式
+A new branch has been created for this implementation. Please follow these steps:
+1. Analyze the issue requirements and objectives
+2. Review existing code structure and related files
+3. Implement the required functionality or fixes
+4. Ensure consistent code style
+5. Refactor and optimize if necessary
+6. Update relevant tests if needed
+7. Commit changes by executing git add and git commit commands
+  - Write commit messages in English
+  - Use conventional commit message format
 
-請確保你的實作：
-- 符合 issue 的具體要求
-- 遵循現有的代碼風格和慣例
-- 包含適當的錯誤處理
-- 具有良好的可讀性和可維護性
+Please ensure your implementation:
+- Meets the specific requirements of the issue
+- Follows existing code style and conventions
+- Includes appropriate error handling
+- Has good readability and maintainability
 
-完成實作後，需要建立 Pull Request
-- 不需執行 PR 指令，只需提供 PR 的標題和說明
-- 請**用英文**描述你所做的更改
+After completing the implementation, a Pull Request will be created
+- Do not execute PR commands, just provide the PR title and description
+- Please describe your changes in English
 """
 
         timeout = int(os.getenv("CLAUDE_TIMEOUT", "300"))
@@ -209,7 +208,7 @@ Issue 資訊：
         logger.info(f"Pushed branch {branch_name} to remote")
 
         pr_title = f"🤖 Implement issue #{issue_number}"
-        pr_body = result.stdout.strip()
+        pr_body = f"Pull request to close #{issue_number}\n" + result.stdout.strip()
 
         subprocess.run(
             ["gh", "pr", "create", "-t", pr_title, "-b", pr_body, "-B", "main", "-H", branch_name],
@@ -245,7 +244,7 @@ async def handle_claude_discuss(repo_path: Path, payload: dict[str, Any]) -> JSO
     repo_full_name, issue_number = extract_repo_and_issue_info(payload)
 
     issue_info = get_issue_info(repo_path, issue_number)
-    claude_thoughts = analyze_issue_with_claude(json.dumps(issue_info, ensure_ascii=False))
+    claude_thoughts = analyze_issue_with_claude(issue_info)
     success = post_comment(repo_full_name, issue_number, claude_thoughts)
 
     if not success:
@@ -295,7 +294,7 @@ async def handle_issue_comment_created(repo_path: Path, payload: dict[str, Any])
         logger.info(f"Issue #{issue_number} already has a Claude reply, skipping...")
         return JSONResponse({"message": "Claude reply already exists"}, status_code=200)
 
-    claude_thoughts = analyze_issue_with_claude(json.dumps(issue_info, ensure_ascii=False))
+    claude_thoughts = analyze_issue_with_claude(issue_info)
     success = post_comment(repo_full_name, issue_number, claude_thoughts)
 
     if not success:
