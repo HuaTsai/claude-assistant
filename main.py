@@ -130,14 +130,6 @@ def implement_issue_with_claude(
         branch_name = f"claude-implement-{issue_number}"
 
         subprocess.run(
-            ["git", "checkout", "main"],
-            cwd=repo_path,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        subprocess.run(
             ["git", "pull", "--rebase"],
             cwd=repo_path,
             check=True,
@@ -264,14 +256,13 @@ async def handle_claude_implement(repo_path: Path, payload: dict[str, Any]) -> J
     repo_full_name, issue_number = extract_repo_and_issue_info(payload)
 
     issue_info = get_issue_info(repo_path, issue_number)
-
     success = implement_issue_with_claude(repo_path, repo_full_name, issue_number, issue_info)
 
-    if success:
-        logger.info(f"Implementation completed for issue #{issue_number} in {repo_full_name}")
-        return JSONResponse({"message": "Implementation completed and PR created"}, status_code=200)
-    else:
+    if not success:
         raise HTTPException(status_code=500, detail="Failed to implement issue")
+
+    logger.info(f"Implementation completed for issue #{issue_number} in {repo_full_name}")
+    return JSONResponse({"message": "Implementation completed and PR created"}, status_code=200)
 
 
 async def handle_issues_labeled(repo_path: Path, payload: dict[str, Any]) -> JSONResponse:
@@ -355,6 +346,13 @@ async def github_webhook(request: Request):
                 raise HTTPException(status_code=500, detail="Failed to clone repository")
         else:
             logger.info(f"Repository already exists: {repo_path}")
+            subprocess.run(
+                ["git", "checkout", "main"],
+                cwd=workdir,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
         if event_type == "issues.labeled":
             return await handle_issues_labeled(repo_path, payload)
