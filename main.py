@@ -140,7 +140,6 @@ def implement_issue_with_claude(
         subprocess.run(
             ["git", "branch", "-D", branch_name],
             cwd=repo_path,
-            check=True,
             capture_output=True,
             text=True,
         )
