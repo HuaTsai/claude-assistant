@@ -38,10 +38,6 @@ load_dotenv()
 app = FastAPI(title="GitHub Claude Webhook")
 
 
-def add(a: int, b: int) -> int:
-    """Add two numbers and return the result."""
-    return a + b
-
 
 claude_reply_signature_zh = "\n\n---\n*🔧 此回覆由 [Claude Code](https://claude.ai/code) 自動生成*"
 claude_reply_signature_en = (
